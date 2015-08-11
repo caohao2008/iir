@@ -18,10 +18,12 @@ def load_corpus(filename):
         mt = re.match(r'\[(.+?)\](.+)', line)
         if mt:
             label = mt.group(1).split(',')
+            print "label = ",label
             for x in label: labelmap[x] = 1
             line = mt.group(2)
         else:
             label = None
+        print "label = ",label
         doc = re.findall(r'\w+(?:\'\w+)?',line.lower())
         if len(doc)>0:
             corpus.append(doc)
@@ -118,6 +120,7 @@ class LLDA:
             for w in doc:
                 log_per -= numpy.log(numpy.inner(phi[:,w], theta))
             N += len(doc)
+            print "doc=",doc,"theta=",theta
         return numpy.exp(log_per / N)
 
 def main():
@@ -138,12 +141,18 @@ def main():
     for i in range(options.iteration):
         sys.stderr.write("-- %d " % (i + 1))
         llda.inference()
+    print ""
     #print llda.z_m_n
 
     phi = llda.phi()
     for v, voca in enumerate(llda.vocas):
-        #print ','.join([voca]+[str(x) for x in llda.n_z_t[:,v]])
+        print ','.join([voca]+[str(x) for x in llda.n_z_t[:,v]])
         print ','.join([voca]+[str(x) for x in phi[:,v]])
-
+    for k, label in enumerate(labelset):
+        print "\n-- label %d : %s" % (k, label)
+        for w in numpy.argsort(-phi[k])[:20]:
+            print "%s: %.4f" % (llda.vocas[w], phi[k,w])
+    print phi
+    print llda.theta()
 if __name__ == "__main__":
     main()
