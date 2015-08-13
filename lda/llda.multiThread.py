@@ -8,6 +8,8 @@
 
 from optparse import OptionParser
 import sys, re, numpy, json
+import thread
+import threading
 
 reload(sys)  # Reload does the trick!  
 sys.setdefaultencoding('UTF8')
@@ -43,6 +45,37 @@ def load_corpus(filename):
     f.close()
     return labelmap.keys(), corpus, labels
 
+class inference_thread(threading.Thread):
+    def __init__(self, llda, m, doc, label, V):
+        threading.Thread.__init__(self)
+        self.doc = doc
+        self.label = label
+        self.llda = llda
+        self.V = V
+        self.m = m
+   
+    def run(self):
+        self.inference_doc(self.llda,self.m,self.doc,self.label,self.V)
+         
+    def inference_doc(self,llda,m,doc,label,V):
+        for n in range(len(doc)):
+            t = doc[n]
+            z = llda.z_m_n[m][n]
+            llda.n_m_z[m, z] -= 1
+            llda.n_z_t[z, t] -= 1
+            llda.n_z[z] -= 1
+    
+            denom_a = llda.n_m_z[m].sum() + llda.K * llda.alpha
+            denom_b = llda.n_z_t.sum(axis=1) + V * llda.beta
+            p_z = label * (llda.n_z_t[:, t] + llda.beta) / denom_b * (llda.n_m_z[m] + llda.alpha) / denom_a
+            new_z = numpy.random.multinomial(1, p_z / p_z.sum()).argmax()
+    
+            llda.z_m_n[m][n] = new_z
+            llda.n_m_z[m, new_z] += 1
+            llda.n_z_t[new_z, t] += 1
+            llda.n_z[new_z] += 1
+
+
 class LLDA:
     def __init__(self, K, alpha, beta):
         #self.K = K
@@ -76,42 +109,49 @@ class LLDA:
         self.docs = [[self.term_to_id(term) for term in doc] for doc in corpus]
 
         M = len(corpus)
+	print "corpus size :",M
         V = len(self.vocas)
-
+	print "word size :",V
+	print "主题数 :",self.K
+	
+	#文档数*每个文档词个数的矩阵
         self.z_m_n = []
-        self.n_m_z = numpy.zeros((M, self.K), dtype=int)
+        #n_m_z为文档数*主题数的矩阵
+	self.n_m_z = numpy.zeros((M, self.K), dtype=int)
+        #n_z_t为主题数*词数的矩阵
         self.n_z_t = numpy.zeros((self.K, V), dtype=int)
+        #n_z为主题数的数组
         self.n_z = numpy.zeros(self.K, dtype=int)
 
-        for m, doc, label in zip(range(M), self.docs, self.labels):
+        #初始化，此处复杂度为文档数*词数*主题数
+	for m, doc, label in zip(range(M), self.docs, self.labels):
             N_m = len(doc)
             #z_n = [label[x] for x in numpy.random.randint(len(label), size=N_m)]
+            #初始化每个文档的词向量数组
             z_n = [numpy.random.multinomial(1, label / label.sum()).argmax() for x in range(N_m)]
+            #print z_n
             self.z_m_n.append(z_n)
+	    #初始化矩阵每维为1
             for t, z in zip(doc, z_n):
                 self.n_m_z[m, z] += 1
                 self.n_z_t[z, t] += 1
                 self.n_z[z] += 1
 
+   
     def inference(self):
         V = len(self.vocas)
-        for m, doc, label in zip(range(len(self.docs)), self.docs, self.labels):
-            for n in range(len(doc)):
-                t = doc[n]
-                z = self.z_m_n[m][n]
-                self.n_m_z[m, z] -= 1
-                self.n_z_t[z, t] -= 1
-                self.n_z[z] -= 1
-
-                denom_a = self.n_m_z[m].sum() + self.K * self.alpha
-                denom_b = self.n_z_t.sum(axis=1) + V * self.beta
-                p_z = label * (self.n_z_t[:, t] + self.beta) / denom_b * (self.n_m_z[m] + self.alpha) / denom_a
-                new_z = numpy.random.multinomial(1, p_z / p_z.sum()).argmax()
-
-                self.z_m_n[m][n] = new_z
-                self.n_m_z[m, new_z] += 1
-                self.n_z_t[new_z, t] += 1
-                self.n_z[new_z] += 1
+        #complexity : 文档数 * doc数 * label数* 词总数
+        threads = []
+	for m,doc,label in zip(range(len(self.docs)), self.docs, self.labels):
+            #threads = []
+	    thread = inference_thread(self,m,doc,label,V)
+            thread.start()
+            threads.append(thread) 
+        for t in threads:
+            t.join()
+                
+            
+                
 
     def phi(self):
         V = len(self.vocas)
@@ -132,7 +172,7 @@ class LLDA:
             for w in doc:
                 log_per -= numpy.log(numpy.inner(phi[:,w], theta))
             N += len(doc)
-            print "doc=",doc,"theta=",theta
+            #print "doc=",doc,"theta=",theta
         return numpy.exp(log_per / N)
 
 def main():
@@ -153,6 +193,8 @@ def main():
     for i in range(options.iteration):
         sys.stderr.write("-- %d " % (i + 1))
         llda.inference()
+	##compute perplexity every round
+	#print "perplexity=",llda.perplexity()
     print ""
     #print llda.z_m_n
 
