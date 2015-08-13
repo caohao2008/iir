@@ -199,13 +199,19 @@ def main():
     #print llda.z_m_n
 
     phi = llda.phi()
+    wvfile = open("wordVector."+options.filename+".alpha"+str(options.alpha)+".beta"+str(options.beta)+"."+"iteration"+str(options.iteration),"w")
+    labelfile = open("labelVector."+options.filename+".alpha"+str(options.alpha)+".beta"+str(options.beta)+"."+"iteration"+str(options.iteration),"w")
     for v, voca in enumerate(llda.vocas):
-        print ','.join([voca]+[str(x) for x in llda.n_z_t[:,v]])
-        print ','.join([voca]+[str(x) for x in phi[:,v]])
+        #print ','.join([voca]+[str(x) for x in llda.n_z_t[:,v]])
+        print >>wvfile,','.join([voca]+[str(x) for x in phi[:,v]])
     for k, label in enumerate(labelset):
-        print "\n-- label %d : %s" % (k, label)
-        for w in numpy.argsort(-phi[k])[:20]:
-            print "%s: %.4f" % (llda.vocas[w], phi[k,w])
+        #print >>labelfile,"\n-- label %d : %s" % (k, label)
+        labelfile.write("%s\t"%label)
+        #for w in numpy.argsort(-phi[k])[:20]:
+        for w in numpy.argsort(-phi[k])[:]:
+            if(phi[k,w]>0.00001):
+                 labelfile.write("%s:%.6f," % (llda.vocas[w], phi[k,w]))
+        labelfile.write("\n")
     #print phi
     #print llda.theta()
 if __name__ == "__main__":
